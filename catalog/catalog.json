@@ -8,15 +8,11 @@
       "platform": "megadrive",
       "author": "andwn (port of Studio Pixel's freeware original)",
       "description": "A fan port of the freeware classic Cave Story to the Mega Drive. Explore, shoot and platform through a huge underground adventure.",
-      "source": { "type": "github", "repo": "andwn/cave-story-md", "asset": "(?i)(^|[-_])en[-_.].*\\.(bin|md|gen)$" }
-    },
-    {
-      "id": "super-tilt-bro",
-      "title": "Super Tilt Bro.",
-      "platform": "nes",
-      "author": "sgadrat",
-      "description": "A Smash-style fighting game for the NES. Brilliant with two controllers.",
-      "source": { "type": "github", "repo": "sgadrat/super-tilt-bro", "asset": "(?i)\\.nes$" }
+      "source": {
+        "type": "github",
+        "repo": "andwn/cave-story-md",
+        "asset": "(?i)[-_]en(g)?\\.(bin|md|gen)$"
+      }
     },
     {
       "id": "nova-the-squirrel",
@@ -24,7 +20,11 @@
       "platform": "nes",
       "author": "NovaSquirrel",
       "description": "A colourful platformer about a squirrel with a block-copying ability.",
-      "source": { "type": "github", "repo": "NovaSquirrel/NovaTheSquirrel", "asset": "(?i)\\.nes$" }
+      "source": {
+        "type": "github",
+        "repo": "NovaSquirrel/NovaTheSquirrel",
+        "asset": "(?i)\\.nes$"
+      }
     },
     {
       "id": "thwaite",
@@ -32,23 +32,11 @@
       "platform": "nes",
       "author": "Damian Yerrick (pinobatch)",
       "description": "A Missile Command-style game: defend the villages from incoming missiles.",
-      "source": { "type": "github", "repo": "pinobatch/thwaite-nes", "asset": "(?i)\\.(nes|zip)$" }
-    },
-    {
-      "id": "tobu-tobu-girl",
-      "title": "Tobu Tobu Girl",
-      "platform": "gb",
-      "author": "Tangram Games",
-      "description": "An arcade platformer: help Tobu climb as high as she can to save her cat.",
-      "source": { "type": "github", "repo": "SimonLarsen/tobutobugirl", "asset": "(?i)\\.(gb|gbc|zip)$" }
-    },
-    {
-      "id": "2048-gb",
-      "title": "2048",
-      "platform": "gb",
-      "author": "Sanqui",
-      "description": "The sliding number puzzle, on the original Game Boy.",
-      "source": { "type": "github", "repo": "Sanqui/2048-gb", "asset": "(?i)\\.(gb|zip)$" }
+      "source": {
+        "type": "github",
+        "repo": "pinobatch/thwaite-nes",
+        "asset": "(?i)\\.(nes|zip)$"
+      }
     },
     {
       "id": "libbet",
@@ -56,7 +44,11 @@
       "platform": "gb",
       "author": "Damian Yerrick (pinobatch)",
       "description": "A puzzle game about rolling across every tile of a magic floor.",
-      "source": { "type": "github", "repo": "pinobatch/libbet", "asset": "(?i)\\.(gb|zip)$" }
+      "source": {
+        "type": "github",
+        "repo": "pinobatch/libbet",
+        "asset": "(?i)\\.(gb|zip)$"
+      }
     },
     {
       "id": "ucity",
@@ -64,15 +56,11 @@
       "platform": "gbc",
       "author": "Antonio Niño Díaz",
       "description": "A full city-building simulation for the Game Boy Color.",
-      "source": { "type": "github", "repo": "AntonioND/ucity", "asset": "(?i)\\.(gbc|gb|zip)$" }
-    },
-    {
-      "id": "varooom-3d",
-      "title": "Varooom 3D",
-      "platform": "gba",
-      "author": "GValiente",
-      "description": "A fast 3D arcade racer that pushes the Game Boy Advance hard.",
-      "source": { "type": "github", "repo": "GValiente/varooom-3d", "asset": "(?i)\\.(gba|zip)$" }
+      "source": {
+        "type": "github",
+        "repo": "AntonioND/ucity",
+        "asset": "(?i)\\.(gbc|gb|zip)$"
+      }
     }
   ]
 }
