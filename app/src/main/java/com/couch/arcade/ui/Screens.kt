@@ -2,9 +2,15 @@
 
 package com.couch.arcade.ui
 
+import android.app.AlertDialog
+import android.content.Context
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import android.widget.FrameLayout
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,13 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,10 +74,9 @@ fun App(vm: AppViewModel) {
         Box(Modifier.fillMaxSize().background(Bg)) {
             when (val s = state.screen) {
                 is Screen.Home -> HomeScreen(vm, state)
-                is Screen.Detail -> DetailScreen(vm, s.game)
+                is Screen.Detail -> DetailScreen(vm, state, s.game)
                 is Screen.Settings -> SettingsScreen(vm, state)
             }
-            state.play?.let { PlayOverlay(it, vm::cancelPlay) }
             state.message?.let { MessageBar(it, vm::dismissMessage) }
         }
     }
@@ -121,7 +122,7 @@ private fun HomeScreen(vm: AppViewModel, state: UiState) {
                         horizontalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         items(shelf.games, key = { it.key }) { game ->
-                            GameCard(game, vm) { vm.open(Screen.Detail(game)) }
+                            GameCard(game, vm, state) { vm.open(Screen.Detail(game)) }
                         }
                     }
                 }
@@ -140,7 +141,7 @@ private fun Hint(text: String) {
 }
 
 @Composable
-private fun GameCard(game: Game, vm: AppViewModel, onClick: () -> Unit) {
+private fun GameCard(game: Game, vm: AppViewModel, state: UiState, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = Modifier.width(190.dp).height(250.dp),
@@ -156,9 +157,15 @@ private fun GameCard(game: Game, vm: AppViewModel, onClick: () -> Unit) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Text(game.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val dl = state.downloads[game.key]
+                val status = when {
+                    dl != null -> dl.progress?.let { "  ·  ${(it * 100).toInt()}%" } ?: "  ·  Downloading"
+                    game.key in state.ready -> "  ·  Ready"
+                    else -> ""
+                }
                 Text(
-                    (game.platformInfo?.name ?: game.platform) + if (vm.isCached(game)) "  ·  Ready" else "",
-                    color = Soft, fontSize = 12.sp, maxLines = 1,
+                    (game.platformInfo?.name ?: game.platform) + status,
+                    color = if (dl != null || game.key in state.ready) Accent else Soft, fontSize = 12.sp, maxLines = 1,
                 )
             }
         }
@@ -194,10 +201,13 @@ private fun placeholderBrush(game: Game): Brush {
 // ---------------------------------------------------------------- Detail
 
 @Composable
-private fun DetailScreen(vm: AppViewModel, game: Game) {
-    val playFocus = remember { FocusRequester() }
-    LaunchedEffect(game.key) { runCatching { playFocus.requestFocus() } }
-    val cached = vm.isCached(game)
+private fun DetailScreen(vm: AppViewModel, state: UiState, game: Game) {
+    val mainFocus = remember { FocusRequester() }
+    val ready = game.key in state.ready
+    val dl = state.downloads[game.key]
+    // Move focus to the main button when the screen opens and whenever it changes
+    // (Download -> Cancel -> Play), so the controller never loses its place.
+    LaunchedEffect(game.key, ready, dl != null) { runCatching { mainFocus.requestFocus() } }
 
     Row(Modifier.fillMaxSize().padding(56.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Cover(game, vm, Modifier.width(320.dp).height(320.dp).clip(RoundedCornerShape(18.dp)))
@@ -213,18 +223,51 @@ private fun DetailScreen(vm: AppViewModel, game: Game) {
             val info = buildList {
                 add(if (game.origin == "library") "From your Pi" else "Free homebrew")
                 game.sizeBytes?.let { add(formatSize(it)) }
-                add(if (cached) "Downloaded" else "Downloads when you press Play")
             }
             Text(info.joinToString("  ·  "), color = Soft, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
+
+            // Status line + progress bar
+            val statusText = when {
+                dl != null -> dl.status
+                ready -> "Downloaded — ready to play"
+                else -> "Not downloaded"
+            }
+            Text(statusText, color = if (ready || dl != null) Accent else Soft, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            if (dl != null) {
+                ProgressBar(dl.progress)
+                Spacer(Modifier.height(16.dp))
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Button(onClick = { vm.play(game) }, modifier = Modifier.focusRequester(playFocus)) {
-                    Text(if (cached) "Play" else "Download & play", fontSize = 18.sp)
+                when {
+                    dl != null -> OutlinedButton(onClick = { vm.cancelDownload(game) }, modifier = Modifier.focusRequester(mainFocus)) {
+                        Text("Cancel download", fontSize = 18.sp)
+                    }
+                    ready -> {
+                        Button(onClick = { vm.play(game) }, modifier = Modifier.focusRequester(mainFocus)) {
+                            Text("Play", fontSize = 18.sp)
+                        }
+                        OutlinedButton(onClick = { vm.removeDownload(game) }) { Text("Remove download") }
+                    }
+                    else -> Button(onClick = { vm.download(game) }, modifier = Modifier.focusRequester(mainFocus)) {
+                        Text("Download", fontSize = 18.sp)
+                    }
                 }
-                if (cached) OutlinedButton(onClick = { vm.removeDownload(game) }) { Text("Remove download") }
                 OutlinedButton(onClick = { vm.open(Screen.Home) }) { Text("Back") }
             }
         }
+    }
+}
+
+@Composable
+private fun ProgressBar(progress: Float?) {
+    Box(Modifier.fillMaxWidth(0.8f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(Card)) {
+        Box(
+            Modifier.fillMaxHeight().fillMaxWidth(progress ?: 0.05f)
+                .clip(RoundedCornerShape(6.dp)).background(Accent)
+        )
     }
 }
 
@@ -232,30 +275,6 @@ private fun formatSize(bytes: Long): String = when {
     bytes >= 1L shl 30 -> "%.1f GB".format(bytes / (1L shl 30).toFloat())
     bytes >= 1L shl 20 -> "%.0f MB".format(bytes / (1L shl 20).toFloat())
     else -> "${(bytes / 1024).coerceAtLeast(1)} KB"
-}
-
-// ---------------------------------------------------------------- Play overlay
-
-@Composable
-private fun PlayOverlay(play: PlayState, onCancel: () -> Unit) {
-    val cancelFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(play.game.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(12.dp))
-            Text(play.status, color = Soft, fontSize = 18.sp)
-            Spacer(Modifier.height(20.dp))
-            Box(Modifier.width(480.dp).height(12.dp).clip(RoundedCornerShape(6.dp)).background(Card)) {
-                Box(
-                    Modifier.fillMaxHeight().fillMaxWidth(play.progress ?: 0.05f)
-                        .clip(RoundedCornerShape(6.dp)).background(Accent)
-                )
-            }
-            Spacer(Modifier.height(28.dp))
-            OutlinedButton(onClick = onCancel, modifier = Modifier.focusRequester(cancelFocus)) { Text("Cancel") }
-        }
-    }
 }
 
 // ---------------------------------------------------------------- Message bar
@@ -308,10 +327,10 @@ private fun SettingsScreen(vm: AppViewModel, state: UiState) {
 
         item { Section("Your Pi library (RomM) — optional") }
         item { Field("RomM address, e.g. http://192.168.1.20:8080", url) { url = it } }
-        item { Field("RomM API token (starts rmm_)", token) { token = it } }
+        item { Field("RomM API token (starts rmm_)", token, secret = true) { token = it } }
 
         item { Section("Storage") }
-        item { Field("Max space for downloaded games, in MB (now using ${state.cacheUsedMb} MB)", cache) { cache = it.filter(Char::isDigit) } }
+        item { Field("Max space for downloaded games, in MB (now using ${state.cacheUsedMb} MB)", cache, numeric = true) { cache = it.filter(Char::isDigit) } }
 
         item { Section("Homebrew catalogue") }
         item { Field("Catalogue address", catalog) { catalog = it } }
@@ -330,25 +349,66 @@ private fun Section(title: String) {
     Text(title, color = Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
 }
 
+/**
+ * A settings row. Selecting it opens a native Android text dialog: the Fire TV
+ * keyboard behaves properly there (Done / Back close it), unlike an inline field.
+ */
 @Composable
-private fun Field(label: String, value: String, onChange: (String) -> Unit) {
-    var focused by remember { mutableStateOf(false) }
+private fun Field(label: String, value: String, numeric: Boolean = false, secret: Boolean = false, onChange: (String) -> Unit) {
+    val context = LocalContext.current
+    val shown = when {
+        value.isBlank() -> "Not set — select to enter"
+        secret && value.length > 10 -> value.take(8) + "…" + value.takeLast(4)
+        else -> value
+    }
     Column {
         Text(label, color = Soft, fontSize = 14.sp)
         Spacer(Modifier.height(6.dp))
-        BasicTextField(
-            value = value,
-            onValueChange = onChange,
-            singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
-            cursorBrush = SolidColor(Accent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { focused = it.isFocused }
-                .clip(RoundedCornerShape(10.dp))
-                .background(Card)
-                .border(2.dp, if (focused) Accent else Color.Transparent, RoundedCornerShape(10.dp))
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        Surface(
+            onClick = { editTextDialog(context, label, value, numeric, onChange) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Card, focusedContainerColor = Card),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
+            border = ClickableSurfaceDefaults.border(
+                focusedBorder = Border(BorderStroke(2.dp, Accent), shape = RoundedCornerShape(10.dp)),
+            ),
+        ) {
+            Text(
+                shown, color = if (value.isBlank()) Soft else Color.White, fontSize = 18.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
     }
+}
+
+private fun editTextDialog(context: Context, title: String, value: String, numeric: Boolean, onDone: (String) -> Unit) {
+    val input = EditText(context).apply {
+        setText(value)
+        setSelection(value.length)
+        isSingleLine = true
+        inputType = if (numeric) InputType.TYPE_CLASS_NUMBER
+        else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        imeOptions = EditorInfo.IME_ACTION_DONE
+    }
+    val pad = (20 * context.resources.displayMetrics.density).toInt()
+    val container = FrameLayout(context).apply {
+        setPadding(pad, pad / 2, pad, 0)
+        addView(input)
+    }
+    val dialog = AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        .setTitle(title)
+        .setView(container)
+        .setPositiveButton("OK") { _, _ -> onDone(input.text.toString()) }
+        .setNegativeButton("Cancel", null)
+        .create()
+    input.setOnEditorActionListener { _, actionId, _ ->
+        if (actionId == EditorInfo.IME_ACTION_DONE) {
+            onDone(input.text.toString())
+            dialog.dismiss()
+            true
+        } else false
+    }
+    dialog.show()
+    input.requestFocus()
 }

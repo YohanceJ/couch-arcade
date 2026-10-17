@@ -57,7 +57,8 @@ class GameCache(private val repo: Repository, private val settings: Settings) {
     private fun makeRoom(incoming: Long, keep: File) {
         val limit = settings.cacheLimitMb.toLong() * 1024 * 1024
         var used = usedBytes()
-        val dirs = (root.listFiles()?.filter { it.isDirectory && it != keep } ?: emptyList())
+        // Only finished games (with a .rom marker) are eligible, so parallel downloads are never touched.
+        val dirs = (root.listFiles()?.filter { it.isDirectory && it != keep && File(it, ".rom").exists() } ?: emptyList())
             .sortedBy { lastPlayed(it) }
         for (d in dirs) {
             if (used + incoming <= limit) break
