@@ -61,6 +61,61 @@
         "repo": "AntonioND/ucity",
         "asset": "(?i)\\.(gbc|gb|zip)$"
       }
+    },
+    {
+      "id": "pokemon-red",
+      "title": "Pokémon Red Version",
+      "platform": "gb",
+      "author": "Game Freak / Nintendo",
+      "description": "The classic RPG that started the phenomenon. Catch, train, and battle Pokémon across the Kanto region.",
+      "source": {
+        "type": "url",
+        "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/Pokemon%20-%20Red%20Version%20%28USA%2C%20Europe%29%20%28SGB%20Enhanced%29.zip"
+      }
+    },
+    {
+      "id": "pokemon-emerald",
+      "title": "Pokémon Emerald Version",
+      "platform": "gba",
+      "author": "Game Freak / Nintendo",
+      "description": "The definitive Gen III Pokémon adventure in the Hoenn region, featuring Rayquaza and the Battle Frontier.",
+      "source": {
+        "type": "url",
+        "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/Pokemon%20-%20Emerald%20Version%20%28USA%2C%20Europe%29.zip"
+      }
+    },
+    {
+      "id": "metroid-fusion",
+      "title": "Metroid Fusion",
+      "platform": "gba",
+      "author": "Nintendo R&D1",
+      "description": "Samus Aran explores a space station infected by the parasitic X organism while being hunted by the deadly SA-X.",
+      "source": {
+        "type": "url",
+        "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/Metroid%20Fusion%20%28USA%2C%20Australia%29.zip"
+      }
+    },
+    {
+      "id": "zelda-ocarina-of-time",
+      "title": "The Legend of Zelda: Ocarina of Time",
+      "platform": "n64",
+      "author": "Nintendo EAD",
+      "description": "Travel through time as Link to stop Ganondorf from obtaining the Triforce in Hyrule.",
+      "source": {
+        "type": "url",
+        "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%2064%20%28BigEndian%29/Legend%20of%20Zelda%2C%20The%20-%20Ocarina%20of%20Time%20%28USA%29.zip"
+      }
+    },
+    {
+      "id": "super-smash-bros-melee",
+      "title": "Super Smash Bros. Melee",
+      "platform": "gamecube",
+      "author": "HAL Laboratory / Nintendo",
+      "description": "The acclaimed fast-paced platform fighter featuring iconic Nintendo characters.",
+      "source": {
+        "type": "url",
+        "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NTSC-U/Super%20Smash%20Bros.%20Melee%20%28USA%29%20%28v1.02%29.zip"
+      }
     }
   ]
 }
