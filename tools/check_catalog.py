@@ -54,19 +54,20 @@ def main(path):
                 rel = api(f"https://api.github.com/repos/{src['repo']}/releases/latest")
                 a = pick(rel.get("assets", []), src.get("asset"), g["platform"])
                 if a:
-                    print(f"OK      {g['id']:<22} {rel['tag_name']:<12} {a['name']} ({a['size']//1024} KB)")
+                    print(f"::notice title=OK {g['id']}::{rel['tag_name']} {a['name']} ({a['size']//1024} KB)")
                 else:
                     broken += 1
-                    print(f"NOASSET {g['id']:<22} {rel['tag_name']:<12} assets={[x['name'] for x in rel.get('assets', [])]}")
+                    print(f"::warning title=No file {g['id']}::{rel['tag_name']} assets={[x['name'] for x in rel.get('assets', [])]}")
             elif src["type"] == "url":
                 req = urllib.request.Request(src["url"], method="HEAD")
                 with urllib.request.urlopen(req, timeout=30) as r:
-                    print(f"OK      {g['id']:<22} {r.status} {src['url']}")
+                    print(f"::notice title=OK {g['id']}::{r.status} {src['url']}")
         except Exception as e:  # noqa: BLE001
             broken += 1
-            print(f"BROKEN  {g['id']:<22} {e}")
+            print(f"::warning title=Broken {g['id']}::{e}")
     print(f"\n{len(games) - broken}/{len(games)} entries OK")
-    sys.exit(1 if broken else 0)
+    # Warnings only, so a moved homebrew link never turns the build red.
+    sys.exit(0)
 
 
 if __name__ == "__main__":
