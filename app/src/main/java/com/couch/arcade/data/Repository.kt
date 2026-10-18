@@ -49,9 +49,19 @@ class Repository(private val settings: Settings) {
 
     // ---------- Homebrew catalogue ----------
 
+    /** The main catalogue plus any catalogues it includes. A broken include is skipped, not fatal. */
     suspend fun loadCatalog(): List<Game> = withContext(Dispatchers.IO) {
-        json.decodeFromString(Catalog.serializer(), get(settings.catalogUrl))
-            .games.filter { Platforms.find(it.platform) != null }
+        val url = settings.catalogUrl
+        val main = json.decodeFromString(Catalog.serializer(), get(url))
+        val base = url.substringBeforeLast('/')
+        val included = main.includes.flatMap { inc ->
+            val incUrl = if (inc.startsWith("http")) inc else "$base/$inc"
+            runCatching { json.decodeFromString(Catalog.serializer(), get(incUrl)).games }.getOrDefault(emptyList())
+        }
+        // Hand-picked entries come first and win over duplicates by title + console.
+        (main.games + included)
+            .filter { Platforms.find(it.platform) != null }
+            .distinctBy { it.platform + "|" + it.title.lowercase().filter(Char::isLetterOrDigit) }
     }
 
     // ---------- RomM (the Pi library) ----------
@@ -99,7 +109,11 @@ class Repository(private val settings: Settings) {
             cover != null -> base + "/" + cover.trimStart('/')
             else -> r.str("url_cover")
         }
+        val genres = (r["metadatum"] as? JsonObject)?.get("genres")?.let { g ->
+            (g as? JsonArray)?.mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
+        } ?: emptyList()
         return Game(
+            tags = genres,
             id = id.toString(),
             title = r.str("name") ?: fsName.substringBeforeLast('.'),
             platform = platform.key,

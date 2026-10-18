@@ -62,6 +62,8 @@ data class Game(
     val description: String? = null,
     val image: String? = null,
     val sizeBytes: Long? = null,
+    val tags: List<String> = emptyList(),
+    val license: String? = null,
     val source: GameSource,
     /** "homebrew" or "library" — which shelf the game came from. */
     val origin: String = "homebrew",
@@ -74,5 +76,7 @@ data class Game(
 data class Catalog(
     val version: Int = 1,
     val name: String? = null,
+    /** Other catalogue files to merge in, relative to this one (e.g. "homebrewhub.json"). */
+    val includes: List<String> = emptyList(),
     val games: List<Game> = emptyList(),
 )

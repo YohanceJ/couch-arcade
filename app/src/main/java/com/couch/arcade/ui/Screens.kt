@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -61,6 +65,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.couch.arcade.data.Game
 import com.couch.arcade.data.GameSource
+import com.couch.arcade.data.Platforms
 
 private val Bg = Color(0xFF14102A)
 private val Card = Color(0xFF241C45)
@@ -74,6 +79,7 @@ fun App(vm: AppViewModel) {
         Box(Modifier.fillMaxSize().background(Bg)) {
             when (val s = state.screen) {
                 is Screen.Home -> HomeScreen(vm, state)
+                is Screen.Browse -> BrowseScreen(vm, state, s.filter)
                 is Screen.Detail -> DetailScreen(vm, state, s.game)
                 is Screen.Settings -> SettingsScreen(vm, state)
             }
@@ -95,6 +101,8 @@ private fun HomeScreen(vm: AppViewModel, state: UiState) {
             Spacer(Modifier.width(12.dp))
             if (state.loading) Text("Loading…", color = Soft, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
+            Button(onClick = { vm.open(Screen.Browse()) }) { Text("Search & browse") }
+            Spacer(Modifier.width(12.dp))
             OutlinedButton(onClick = vm::refresh) { Text("Refresh") }
             Spacer(Modifier.width(12.dp))
             OutlinedButton(onClick = { vm.open(Screen.Settings) }) { Text("Settings") }
@@ -113,16 +121,22 @@ private fun HomeScreen(vm: AppViewModel, state: UiState) {
         ) {
             items(state.shelves, key = { it.title }) { shelf ->
                 Column {
-                    Text(
-                        shelf.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 48.dp, bottom = 10.dp),
-                    )
+                    Row(Modifier.padding(start = 48.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
+                        Text(shelf.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        if (shelf.total > shelf.games.size) {
+                            Spacer(Modifier.width(10.dp))
+                            Text("${shelf.total} games", color = Soft, fontSize = 14.sp)
+                        }
+                    }
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 48.dp),
                         horizontalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         items(shelf.games, key = { it.key }) { game ->
-                            GameCard(game, vm, state) { vm.open(Screen.Detail(game)) }
+                            GameCard(game, vm, state) { vm.openGame(game) }
+                        }
+                        shelf.seeAll?.let { f ->
+                            item(key = "see-all") { SeeAllCard(shelf.total) { vm.open(Screen.Browse(f)) } }
                         }
                     }
                 }
@@ -198,6 +212,141 @@ private fun placeholderBrush(game: Game): Brush {
     return Brush.linearGradient(listOf(a, b))
 }
 
+@Composable
+private fun SeeAllCard(total: Int, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.width(190.dp).height(250.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Card, focusedContainerColor = Card),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(BorderStroke(3.dp, Accent), shape = RoundedCornerShape(14.dp)),
+        ),
+    ) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("See all", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text("$total games", color = Soft, fontSize = 14.sp)
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Browse (search + filters)
+
+@Composable
+private fun BrowseScreen(vm: AppViewModel, state: UiState, filter: BrowseFilter) {
+    val context = LocalContext.current
+    fun set(f: BrowseFilter) = vm.open(Screen.Browse(f))
+
+    // Options only list what actually exists in the library, so filters never lead nowhere.
+    val platforms = remember(state.allGames) {
+        Platforms.all.filter { p -> state.allGames.any { it.platform == p.key } }
+    }
+    val inScope = remember(state.allGames, filter.platform, filter.origin) {
+        state.allGames.filter {
+            (filter.platform == null || it.platform == filter.platform) && (filter.origin == null || it.origin == filter.origin)
+        }
+    }
+    val genres = remember(inScope) {
+        inScope.flatMap { it.tags }
+            .filterNot { it.equals("Open Source", true) || it.equals("Homebrew", true) }
+            .groupingBy { it }.eachCount()
+            .entries.sortedByDescending { it.value }.take(14).map { it.key }
+    }
+    val hasLibrary = remember(state.allGames) { state.allGames.any { it.origin == "library" } }
+    val results = remember(state.allGames, filter) {
+        state.allGames.filter(filter::matches).sortedBy { it.title.lowercase() }
+    }
+
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { searchFocus.requestFocus() } }
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(190.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 48.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Search & browse", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.White)
+                    Spacer(Modifier.weight(1f))
+                    OutlinedButton(onClick = { vm.open(Screen.Home) }) { Text("Home") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = {
+                            editTextDialog(context, "Search by title, creator or genre", filter.query, false) {
+                                set(filter.copy(query = it.trim()))
+                            }
+                        },
+                        modifier = Modifier.focusRequester(searchFocus),
+                    ) { Text(if (filter.query.isBlank()) "Search…" else "Search: ${filter.query}") }
+                    if (filter != BrowseFilter()) {
+                        Spacer(Modifier.width(12.dp))
+                        OutlinedButton(onClick = { set(BrowseFilter()) }) { Text("Clear all") }
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Text("${results.size} games", color = Soft, fontSize = 15.sp)
+                }
+                ChipRow("Console", listOf(null to "All") + platforms.map { it.key to it.name }, filter.platform) {
+                    set(filter.copy(platform = it, tag = null))
+                }
+                if (hasLibrary) {
+                    ChipRow("Source", listOf(null to "All", "library" to "My games", "homebrew" to "Homebrew"), filter.origin) {
+                        set(filter.copy(origin = it, tag = null))
+                    }
+                }
+                if (genres.isNotEmpty()) {
+                    ChipRow("Genre", listOf(null to "All") + genres.map { it to it }, filter.tag) {
+                        set(filter.copy(tag = it))
+                    }
+                }
+            }
+        }
+        if (results.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("No games match. Try fewer filters.", color = Soft, fontSize = 17.sp, modifier = Modifier.padding(top = 24.dp))
+            }
+        }
+        items(results, key = { it.key }) { game ->
+            GameCard(game, vm, state) { vm.openGame(game) }
+        }
+    }
+}
+
+@Composable
+private fun ChipRow(label: String, options: List<Pair<String?, String>>, selected: String?, onSelect: (String?) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Soft, fontSize = 14.sp, modifier = Modifier.width(80.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(options, key = { it.first ?: "__all" }) { (value, text) ->
+                val on = value == selected
+                Surface(
+                    onClick = { onSelect(value) },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (on) Accent else Card,
+                        focusedContainerColor = if (on) Accent else Color(0xFF3A2F66),
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                    border = ClickableSurfaceDefaults.border(
+                        focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(20.dp)),
+                    ),
+                ) {
+                    Text(
+                        text, color = Color.White, fontSize = 15.sp, maxLines = 1,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Detail
 
 @Composable
@@ -223,8 +372,12 @@ private fun DetailScreen(vm: AppViewModel, state: UiState, game: Game) {
             val info = buildList {
                 add(if (game.origin == "library") "From your Pi" else "Free homebrew")
                 game.sizeBytes?.let { add(formatSize(it)) }
+                game.license?.let { add("Licence: $it") }
             }
             Text(info.joinToString("  ·  "), color = Soft, fontSize = 14.sp)
+            if (game.tags.isNotEmpty()) {
+                Text(game.tags.take(6).joinToString("  ·  "), color = Soft, fontSize = 14.sp)
+            }
             Spacer(Modifier.weight(1f))
 
             // Status line + progress bar
@@ -255,7 +408,7 @@ private fun DetailScreen(vm: AppViewModel, state: UiState, game: Game) {
                         Text("Download", fontSize = 18.sp)
                     }
                 }
-                OutlinedButton(onClick = { vm.open(Screen.Home) }) { Text("Back") }
+                OutlinedButton(onClick = { vm.back() }) { Text("Back") }
             }
         }
     }

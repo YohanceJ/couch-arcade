@@ -1,133 +1,148 @@
 #!/usr/bin/env python3
-"""Builds catalog/homebrewhub.json from Homebrew Hub (https://hh.gbdev.io).
+"""Builds catalog/homebrewhub.json from the Homebrew Hub source databases.
 
-Homebrew Hub is a community archive of homebrew that creators publish freely
-(GB, GBC, GBA and NES). This runs in GitHub Actions on a schedule, so the
-Fire TV app only has to download one ready-made list.
+Homebrew Hub (https://hh.gbdev.io) is a community archive of homebrew that
+creators publish freely. Its data lives in public GitHub repos, one folder per
+entry with a game.json, the ROM and screenshots:
 
-Only entries typed "game" with a playable ROM are included (no ROM hacks,
-which would need an original game).
+    gbdev/database          Game Boy / Game Boy Color
+    gbadev-org/games        Game Boy Advance
+    nesdev-org/homebrew-db  NES
+
+Usage: sync_homebrewhub.py OUT.json OWNER/REPO=PATH [OWNER/REPO=PATH ...]
+where PATH is a local checkout (only the game.json files are needed).
+
+Only "game" entries with a ROM are kept: no demos, tools, music or ROM hacks.
 """
+import glob
 import json
+import os
+import re
+import subprocess
 import sys
-import time
 import urllib.parse
-import urllib.request
 
-API = "https://hh3.gbdev.io/api"
 PLATFORMS = {"GB": "gb", "GBC": "gbc", "GBA": "gba", "NES": "nes"}
-ROM_EXT = {"gb", "gbc", "gba", "nes"}
+DEFAULT_PLATFORM = {"gbdev/database": "gb", "gbadev-org/games": "gba", "nesdev-org/homebrew-db": "nes"}
+ROM_EXT = {"gb": "gb", "gbc": "gbc", "cgb": "gbc", "gba": "gba", "nes": "nes"}
+
+# Tags that describe events or style rather than genre are dropped; a few are merged.
+DROP_TAG = re.compile(r"(event:|compo|jam|showdown|shortlist|open source|^retro$|pixel art|^2d$|^3d$|8-bit|"
+                      r"singleplayer|single player|^homebrew$|^game ?boy|^gba$|^nes$|^gbc?$|^wip$|no ?ai|^short$|^cute$|^indie$|gb ?studio|"
+                      r"^fun$|^free$|^other$|^funny$)", re.I)
+MERGE_TAG = {"platformer": "Platform", "shoot 'em up": "Shooter", "shmup": "Shooter", "rpg": "RPG",
+             "puzzle game": "Puzzle", "action-adventure": "Adventure", "role playing": "RPG",
+             "role-playing": "RPG", "platformers": "Platform", "racing game": "Racing"}
 
 
-def get(path, params=None):
-    url = f"{API}/{path}"
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
-    for attempt in range(4):
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "CouchArcade-sync"})
-            with urllib.request.urlopen(req, timeout=60) as r:
-                return json.load(r)
-        except Exception as e:  # noqa: BLE001
-            if attempt == 3:
-                raise
-            print(f"retry {url}: {e}", file=sys.stderr)
-            time.sleep(3 * (attempt + 1))
+def clean_tags(tags):
+    out = []
+    for t in tags or []:
+        if not isinstance(t, str) or not t.strip() or DROP_TAG.search(t):
+            continue
+        t = MERGE_TAG.get(t.strip().lower(), t.strip())
+        t = t[0].upper() + t[1:]
+        if t.lower() not in (o.lower() for o in out):
+            out.append(t)
+    return out
 
 
-def fetch_all():
-    """Page through /all. Copes with 0- or 1-based pages and small page caps."""
-    entries = {}
-    first = get("all", {"page": 1, "page_elements": 100})
-    print(f"::notice title=First page::keys={list(first)[:8]} results={first.get('results')} "
-          f"page_total={first.get('page_total')} page_elements={first.get('page_elements')} "
-          f"page_current={first.get('page_current')} entries={len(first.get('entries', []))}")
-    total = first.get("results", 0)
-    pages = first.get("page_total", 1)
-    per_page = first.get("page_elements", 10)
-    print(f"Homebrew Hub reports {total} entries, {pages} pages of {per_page}", file=sys.stderr)
-
-    def add(resp):
-        for e in resp.get("entries", []):
-            if e.get("slug"):
-                entries[e["slug"]] = e
-
-    add(first)
-    for page in range(2, pages + 1):
-        add(get("all", {"page": page, "page_elements": 100}))
-    if len(entries) < total:
-        add(get("all", {"page": 0, "page_elements": 100}))
-        if pages >= 1:
-            add(get("all", {"page": pages + 1, "page_elements": 100}))
-    print(f"Fetched {len(entries)} unique entries", file=sys.stderr)
-    return list(entries.values())
+def developer(d):
+    if isinstance(d, str):
+        return d.strip() or None
+    if isinstance(d, dict):
+        return d.get("name")
+    if isinstance(d, list):
+        names = [x.get("name") if isinstance(x, dict) else x for x in d]
+        names = [n for n in names if isinstance(n, str) and n.strip()]
+        return ", ".join(names[:3]) + (" & others" if len(names) > 3 else "") if names else None
+    return None
 
 
-def pick_rom(files):
-    roms = [f for f in files or [] if f.get("filename", "").rsplit(".", 1)[-1].lower() in ROM_EXT]
-    for want in (lambda f: f.get("default") and f.get("playable"),
-                 lambda f: f.get("playable"),
-                 lambda f: True):
+def pick_rom(files, allow_zip):
+    def ext(f):
+        return f.get("filename", "").rsplit(".", 1)[-1].lower()
+    roms = [f for f in files or [] if ext(f) in ROM_EXT]
+    if not roms and allow_zip:
+        roms = [f for f in files or [] if ext(f) == "zip"]
+    for want in (lambda f: f.get("default") and f.get("playable"), lambda f: f.get("playable"),
+                 lambda f: f.get("default"), lambda f: True):
         for f in roms:
             if want(f):
                 return f["filename"]
     return None
 
 
-def file_url(slug, name):
-    return f"{API}/entry/{urllib.parse.quote(slug)}/{urllib.parse.quote(name)}"
+def raw_url(repo, branch, folder, name):
+    return (f"https://raw.githubusercontent.com/{repo}/{branch}/entries/"
+            f"{urllib.parse.quote(folder)}/{urllib.parse.quote(name)}")
 
 
-def convert(e):
-    if (e.get("typetag") or "").lower() != "game":
+def branch_of(path):
+    try:
+        return subprocess.check_output(["git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+    except Exception:  # noqa: BLE001
+        return "master"
+
+
+def convert(repo, branch, path):
+    folder = os.path.basename(os.path.dirname(path))
+    try:
+        e = json.load(open(path, encoding="utf-8"))
+    except Exception as ex:  # noqa: BLE001
+        print(f"skip {path}: {ex}", file=sys.stderr)
         return None
-    platform = PLATFORMS.get((e.get("platform") or "").upper())
-    if not platform:
+    if (e.get("typetag") or "game").lower() != "game" or e.get("nsfw"):
         return None
-    rom = pick_rom(e.get("files"))
+    rom = pick_rom(e.get("files"), allow_zip=True)
     if not rom:
         return None
-    # A .gb file that's tagged GBC is really a GBC-enhanced game; the same emulator plays both.
-    slug = e["slug"]
-    shots = e.get("screenshots") or []
-    tags = [t for t in (e.get("tags") or []) if isinstance(t, str)]
-    desc = e.get("description")
-    if not isinstance(desc, str) or not desc.strip():
-        desc = None
+    platform = PLATFORMS.get((e.get("platform") or "").upper()) or DEFAULT_PLATFORM.get(repo)
+    ext = rom.rsplit(".", 1)[-1].lower()
+    if ext in ("gbc", "cgb"):
+        platform = "gbc"
+    if not platform:
+        return None
+    shots = [s for s in (e.get("screenshots") or []) if isinstance(s, str)]
+    desc = e.get("description") if isinstance(e.get("description"), str) else None
+    if desc:
+        desc = re.sub(r"\s+", " ", re.sub(r"[#*_`>]|\[([^\]]*)\]\([^)]*\)", r"\1", desc)).strip()[:400] or None
+    lic = e.get("license") or e.get("gameLicense")
     game = {
-        "id": f"hh-{slug}",
-        "title": (e.get("title") or slug).strip(),
+        "id": f"hh-{folder}",
+        "title": (e.get("title") or folder).strip(),
         "platform": platform,
-        "author": (e.get("developer") if isinstance(e.get("developer"), str) else None),
-        "description": desc.strip()[:400] if desc else None,
-        "image": file_url(slug, shots[0]) if shots else None,
-        "tags": tags,
-        "license": e.get("license") if isinstance(e.get("license"), str) else None,
-        "source": {"type": "url", "url": file_url(slug, rom), "fileName": rom},
+        "author": developer(e.get("developer")),
+        "description": desc,
+        "image": raw_url(repo, branch, folder, shots[0]) if shots else None,
+        "tags": clean_tags(e.get("tags")),
+        "license": lic if isinstance(lic, str) and lic.strip() else None,
+        "source": {"type": "url", "url": raw_url(repo, branch, folder, rom), "fileName": rom},
     }
     return {k: v for k, v in game.items() if v not in (None, [], "")}
 
 
-def main(out):
-    games = [g for g in (convert(e) for e in fetch_all()) if g]
+def main(out, sources):
+    games, summary = [], {}
+    for src in sources:
+        repo, path = src.split("=", 1)
+        branch = branch_of(path)
+        found = [g for g in (convert(repo, branch, p) for p in sorted(glob.glob(f"{path}/entries/*/game.json"))) if g]
+        summary[repo] = len(found)
+        games += found
     games.sort(key=lambda g: g["title"].lower())
-    by_platform = {}
+    per_platform = {}
     for g in games:
-        by_platform[g["platform"]] = by_platform.get(g["platform"], 0) + 1
-    print(f"::notice title=Kept {len(games)} games::{by_platform}")
-    if len(games) < 50:
+        per_platform[g["platform"]] = per_platform.get(g["platform"], 0) + 1
+    print(f"::notice title=Kept {len(games)} games::{summary} {per_platform}")
+    if len(games) < 100:
         print(f"::error title=Too few games::Only {len(games)} games - not overwriting the list")
         sys.exit(1)
     with open(out, "w", encoding="utf-8") as f:
-        json.dump({"version": 1, "name": "Homebrew Hub", "games": games}, f, ensure_ascii=False, indent=1)
+        json.dump({"version": 1, "name": "Homebrew Hub", "source": "https://hh.gbdev.io", "games": games},
+                  f, ensure_ascii=False, separators=(",", ":"))
         f.write("\n")
 
 
 if __name__ == "__main__":
-    try:
-        main(sys.argv[1])
-    except SystemExit:
-        raise
-    except Exception as e:  # noqa: BLE001
-        print(f"::error title=Sync failed::{type(e).__name__}: {e}")
-        raise
+    main(sys.argv[1], sys.argv[2:])

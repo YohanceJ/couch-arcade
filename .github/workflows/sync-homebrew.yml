@@ -23,17 +23,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch game metadata (game.json files only, no ROMs)
+        run: |
+          for r in gbdev/database gbadev-org/games nesdev-org/homebrew-db; do
+            git clone -q --depth 1 --filter=blob:limit=200k --no-checkout "https://github.com/$r" "src/$r"
+            git -C "src/$r" sparse-checkout set --no-cone '/entries/*/game.json'
+            git -C "src/$r" checkout -q
+          done
+
       - name: Build catalog/homebrewhub.json
-        run: python3 tools/sync_homebrewhub.py catalog/homebrewhub.json
+        run: |
+          python3 tools/sync_homebrewhub.py catalog/homebrewhub.json \
+            gbdev/database=src/gbdev/database \
+            gbadev-org/games=src/gbadev-org/games \
+            nesdev-org/homebrew-db=src/nesdev-org/homebrew-db
 
       - name: Commit if changed
         run: |
-          if git diff --quiet -- catalog/homebrewhub.json && git ls-files --error-unmatch catalog/homebrewhub.json >/dev/null 2>&1; then
-            echo "No changes"; exit 0
-          fi
+          git add catalog/homebrewhub.json
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add catalog/homebrewhub.json
           git commit -m "Sync Homebrew Hub catalogue"
           git pull --rebase origin main
           git push
