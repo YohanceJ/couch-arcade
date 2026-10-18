@@ -1,6 +1,9 @@
 {
   "version": 1,
   "name": "Couch Arcade homebrew",
+  "includes": [
+    "homebrewhub.json"
+  ],
   "games": [
     {
       "id": "cave-story-md",
