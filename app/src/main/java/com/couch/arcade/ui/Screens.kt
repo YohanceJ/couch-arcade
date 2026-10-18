@@ -101,6 +101,12 @@ private fun HomeScreen(vm: AppViewModel, state: UiState) {
             Spacer(Modifier.width(12.dp))
             if (state.loading) Text("Loading…", color = Soft, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
+            if (state.update != null) {
+                Button(onClick = vm::installUpdate) {
+                    Text(state.updateProgress?.let { "Updating ${(it * 100).toInt()}%" } ?: "Update app")
+                }
+                Spacer(Modifier.width(12.dp))
+            }
             Button(onClick = { vm.open(Screen.Browse()) }) { Text("Search & browse") }
             Spacer(Modifier.width(12.dp))
             OutlinedButton(onClick = vm::refresh) { Text("Refresh") }
@@ -110,6 +116,9 @@ private fun HomeScreen(vm: AppViewModel, state: UiState) {
 
         if (state.retroArchMissing) {
             Hint("RetroArch isn't installed yet. Open Settings for how to add it.")
+        }
+        if (state.update != null && state.updateStatus != null) {
+            Hint(state.updateStatus)
         }
         if (!state.loading && state.shelves.isEmpty()) {
             Hint("No games yet. Check your internet connection, or add your Pi in Settings.")
@@ -462,6 +471,24 @@ private fun SettingsScreen(vm: AppViewModel, state: UiState) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { Text("Settings", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black) }
+
+        item { Section("App updates") }
+        item {
+            Text(
+                "Version ${vm.updater.currentVersionName}" + (state.updateStatus?.let { "  ·  $it" } ?: ""),
+                color = Soft, fontSize = 15.sp,
+            )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (state.update != null) {
+                    Button(onClick = vm::installUpdate) {
+                        Text(state.updateProgress?.let { "Updating ${(it * 100).toInt()}%" } ?: "Update to build ${state.update.build}")
+                    }
+                }
+                OutlinedButton(onClick = { vm.checkForUpdate() }) { Text("Check for updates") }
+            }
+        }
 
         item { Section("RetroArch") }
         item {

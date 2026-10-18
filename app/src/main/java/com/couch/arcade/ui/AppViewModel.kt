@@ -9,6 +9,8 @@ import com.couch.arcade.data.Platforms
 import com.couch.arcade.data.Repository
 import com.couch.arcade.data.RetroArch
 import com.couch.arcade.data.Settings
+import com.couch.arcade.data.AppUpdate
+import com.couch.arcade.data.Updater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -63,6 +65,11 @@ data class UiState(
     val message: String? = null,
     val retroArchMissing: Boolean = false,
     val cacheUsedMb: Long = 0,
+    /** A newer app build on GitHub, if any. */
+    val update: AppUpdate? = null,
+    /** Progress/status of checking or installing an update, shown in Settings and on the home bar. */
+    val updateStatus: String? = null,
+    val updateProgress: Float? = null,
 )
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -77,7 +84,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var homebrewGames: List<Game> = emptyList()
     private var libraryGames: List<Game> = emptyList()
 
-    init { refresh() }
+    val updater = Updater(app, repo.http)
+    private var updateJob: Job? = null
+
+    init {
+        refresh()
+        checkForUpdate(quiet = true)
+    }
+
+    /** Looks for a newer build. Quiet checks (on launch) only show something if there is one. */
+    fun checkForUpdate(quiet: Boolean = false) {
+        if (updateJob?.isActive == true) return
+        updateJob = viewModelScope.launch {
+            if (!quiet) _state.update { it.copy(updateStatus = "Checking…", updateProgress = null) }
+            try {
+                val u = updater.check()
+                _state.update {
+                    it.copy(
+                        update = u,
+                        updateStatus = when {
+                            u != null -> "Build ${u.build} is available"
+                            quiet -> null
+                            else -> "You're on the latest version"
+                        },
+                    )
+                }
+            } catch (e: Exception) {
+                if (!quiet) _state.update { it.copy(updateStatus = "Couldn't check: ${e.message}") }
+            }
+        }
+    }
+
+    /** Downloads the new APK and opens Android's "Update this app?" prompt. */
+    fun installUpdate() {
+        val u = _state.value.update ?: return
+        if (updateJob?.isActive == true) return
+        if (!updater.canInstall()) {
+            val opened = updater.openInstallPermission()
+            _state.update {
+                it.copy(
+                    updateStatus = if (opened) "Turn on \"Allow from this source\" for Couch Arcade, then press Back and choose Update again"
+                    else "Allow Couch Arcade to install apps: Fire TV Settings → My Fire TV → Developer options → Install unknown apps",
+                )
+            }
+            return
+        }
+        updateJob = viewModelScope.launch {
+            try {
+                _state.update { it.copy(updateStatus = "Downloading update…", updateProgress = 0f) }
+                val apk = updater.download(u) { p ->
+                    _state.update { s -> s.copy(updateProgress = p, updateStatus = "Downloading update ${(p * 100).toInt()}%") }
+                }
+                _state.update { it.copy(updateStatus = "Opening installer…", updateProgress = null) }
+                updater.install(apk)
+            } catch (e: CancellationException) {
+                _state.update { it.copy(updateStatus = null, updateProgress = null) }
+            } catch (e: Exception) {
+                _state.update { it.copy(updateStatus = "Update failed: ${e.message}", updateProgress = null) }
+            }
+        }
+    }
 
     fun refresh() {
         viewModelScope.launch {
