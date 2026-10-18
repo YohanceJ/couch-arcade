@@ -39,6 +39,9 @@ def fetch_all():
     """Page through /all. Copes with 0- or 1-based pages and small page caps."""
     entries = {}
     first = get("all", {"page": 1, "page_elements": 100})
+    print(f"::notice title=First page::keys={list(first)[:8]} results={first.get('results')} "
+          f"page_total={first.get('page_total')} page_elements={first.get('page_elements')} "
+          f"page_current={first.get('page_current')} entries={len(first.get('entries', []))}")
     total = first.get("results", 0)
     pages = first.get("page_total", 1)
     per_page = first.get("page_elements", 10)
@@ -111,13 +114,20 @@ def main(out):
     by_platform = {}
     for g in games:
         by_platform[g["platform"]] = by_platform.get(g["platform"], 0) + 1
-    print(f"Kept {len(games)} games: {by_platform}", file=sys.stderr)
+    print(f"::notice title=Kept {len(games)} games::{by_platform}")
     if len(games) < 50:
-        sys.exit(f"Only {len(games)} games - refusing to overwrite the list (API problem?)")
+        print(f"::error title=Too few games::Only {len(games)} games - not overwriting the list")
+        sys.exit(1)
     with open(out, "w", encoding="utf-8") as f:
         json.dump({"version": 1, "name": "Homebrew Hub", "games": games}, f, ensure_ascii=False, indent=1)
         f.write("\n")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    try:
+        main(sys.argv[1])
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"::error title=Sync failed::{type(e).__name__}: {e}")
+        raise
